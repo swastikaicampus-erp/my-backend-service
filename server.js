@@ -5,7 +5,6 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require("socket.io");
-const admin = require('firebase-admin');
 
 try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT.startsWith('{')
