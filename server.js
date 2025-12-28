@@ -1,10 +1,18 @@
+const admin = require('firebase-admin');
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require("socket.io");
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+    console.log("✅ Firebase Admin Initialized");
+}
 // Routes Import 
 const adRoutes = require('./routes/adRoutes');
 const playlistRoutes = require('./routes/playlistRoutes');

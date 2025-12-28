@@ -21,10 +21,10 @@ module.exports = (io) => {
     // ----------------------------------------------------------------------
     // 1. READ (GET) - सभी ऐड प्राप्त करें
     // ----------------------------------------------------------------------
-    router.get('/', async (req, res) => {
+    router.get('/', protect, async (req, res) => {
         try {
             // आर्डर के हिसाब से सॉर्ट
-            const ads = await Ad.find().sort({ order: 1 }); 
+            const ads = await Ad.find({ userId: req.user.uid }).sort({ order: 1 });
             res.json(ads);
         } catch (error) {
             console.error("GET Ads Error:", error);
@@ -42,33 +42,34 @@ module.exports = (io) => {
             if (!req.file) {
                 return res.status(400).json({ message: 'No file uploaded' });
             }
-            
+
             // --- 1. आर्डर निर्धारित करें ---
             let adOrder = parseInt(req.body.order);
             // यदि ऑर्डर नहीं दिया गया है या 0 है, तो सूची के अंत में जोड़ें
-            if (isNaN(adOrder) || adOrder < 0) { 
+            if (isNaN(adOrder) || adOrder < 0) {
                 const maxAd = await Ad.findOne().sort({ order: -1 });
                 adOrder = maxAd ? maxAd.order + 1 : 0;
             }
-            
+
             // --- 2. Cloudinary पर अपलोड करें ---
             const result = await cloudinary.uploader.upload(filePath, {
-                resource_type: "auto", 
+                resource_type: "auto",
                 folder: "digital_signage"
             });
 
             // --- 3. लोकल फाइल डिलीट करें (Cleanup) ---
             if (filePath && fs.existsSync(filePath)) {
-                 fs.unlinkSync(filePath);
-                 filePath = null; // पाथ को रीसेट करें
+                fs.unlinkSync(filePath);
+                filePath = null; // पाथ को रीसेट करें
             }
 
             // --- 4. डेटाबेस में सेव करें ---
             const newAd = new Ad({
+                userId: req.user.uid, // <--- टोकन से यूजर ID यहाँ डालें
                 title: req.body.title,
                 order: adOrder,
                 url: result.secure_url,
-                public_id: result.public_id, 
+                public_id: result.public_id,
                 type: result.resource_type === 'video' ? 'video' : 'image',
                 duration: req.body.duration || 10
             });
@@ -84,7 +85,7 @@ module.exports = (io) => {
             console.error("Upload Error:", error);
             // सुनिश्चित करें कि असफल होने पर भी लोकल फाइल डिलीट हो जाए
             if (filePath && fs.existsSync(filePath)) {
-                 fs.unlinkSync(filePath);
+                fs.unlinkSync(filePath);
             }
             res.status(500).json({ message: 'Upload failed due to server error.' });
         }
@@ -106,7 +107,7 @@ module.exports = (io) => {
 
             // A. अगर नई फ़ाइल अपलोड की गई है
             if (req.file) {
-                
+
                 // 1. पुरानी फ़ाइल को Cloudinary से डिलीट करें
                 if (ad.public_id) {
                     try {
@@ -114,17 +115,17 @@ module.exports = (io) => {
                             resource_type: ad.type === 'video' ? 'video' : 'image'
                         });
                     } catch (cloudError) {
-                         // Cloudinary डिलीट विफल होने पर भी DB अपडेट जारी रखें
-                        console.warn("Cloudinary old file deletion failed:", cloudError.message); 
+                        // Cloudinary डिलीट विफल होने पर भी DB अपडेट जारी रखें
+                        console.warn("Cloudinary old file deletion failed:", cloudError.message);
                     }
                 }
 
                 // 2. नई फ़ाइल को Cloudinary पर अपलोड करें
                 const result = await cloudinary.uploader.upload(filePath, {
-                    resource_type: "auto", 
+                    resource_type: "auto",
                     folder: "digital_signage"
                 });
-                
+
                 newUrl = result.secure_url;
                 newPublicId = result.public_id;
                 newType = result.resource_type === 'video' ? 'video' : 'image';
@@ -132,8 +133,8 @@ module.exports = (io) => {
 
             // B. लोकल क्लीनअप
             if (filePath && fs.existsSync(filePath)) {
-                 fs.unlinkSync(filePath);
-                 filePath = null;
+                fs.unlinkSync(filePath);
+                filePath = null;
             }
 
             // C. डेटाबेस में अपडेट करें
@@ -141,7 +142,7 @@ module.exports = (io) => {
             if (req.body.title !== undefined) ad.title = req.body.title;
             if (req.body.order !== undefined) ad.order = req.body.order;
             if (req.body.duration !== undefined) ad.duration = req.body.duration;
-            
+
             ad.url = newUrl;
             ad.public_id = newPublicId;
             ad.type = newType;
@@ -157,7 +158,7 @@ module.exports = (io) => {
             console.error("Update Error:", error);
             // असफल होने पर भी लोकल फाइल डिलीट करें
             if (filePath && fs.existsSync(filePath)) {
-                 fs.unlinkSync(filePath);
+                fs.unlinkSync(filePath);
             }
             res.status(500).json({ message: 'Update failed due to server error.' });
         }
@@ -168,12 +169,10 @@ module.exports = (io) => {
     // ----------------------------------------------------------------------
     router.delete('/:id', protect, async (req, res) => {
         try {
-            const ad = await Ad.findById(req.params.id);
-            if (!ad) return res.status(404).json({ message: 'Ad not found' });
-
-            // 1. Cloudinary से डिलीट करें
+            const ad = await Ad.findOne({ _id: req.params.id, userId: req.user.uid }); // ID और User दोनों चेक करें
+            if (!ad) return res.status(404).json({ message: 'Ad not found or unauthorized' });
             if (ad.public_id) {
-                 try {
+                try {
                     await cloudinary.uploader.destroy(ad.public_id, {
                         resource_type: ad.type === 'video' ? 'video' : 'image'
                     });
