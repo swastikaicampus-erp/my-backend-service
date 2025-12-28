@@ -1,51 +1,9 @@
-// --- server.js (Final Verified Code) ---
-
-require('dotenv').config(); // ✅ CHANGE 1: Local .env support ke liye uncomment kiya
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require("socket.io");
-const admin = require('firebase-admin'); // Firebase Admin SDK
-
-// 🚨 Firebase Admin Initialization 🚨
-let serviceAccountConfig;
-
-// 1. Environment Variable से लोड करने का प्रयास (Render/Production)
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    try {
-        serviceAccountConfig = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-        console.log("✅ Using Firebase config from Environment Variable (Production).");
-    } catch (err) {
-        console.error("❌ CRITICAL ERROR: FIREBASE_SERVICE_ACCOUNT JSON parsing failed!", err);
-        process.exit(1);
-    }
-} 
-// 2. यदि Environment Variable नहीं मिला, तो Local File से लोड करने का प्रयास (Development)
-else {
-    try {
-        serviceAccountConfig = require('./serviceAccountKey.json');
-        console.log("⚠️ Using Firebase config from local file (Development).");
-    } catch (err) {
-        // Dev mein yeh error aayega agar file nahi mili, par production mein yeh block chalega nahi
-        console.warn("⚠️ Warning: Firebase Service Account Key not found locally. Check FIREBASE_SERVICE_ACCOUNT variable on Render.");
-        // We will continue to run, but Firebase functionality won't work in this case
-    }
-}
-
-// 3. यदि Config मिला, तो Firebase को Initialize करें
-if (serviceAccountConfig && !admin.apps.length) {
-    try {
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccountConfig)
-        });
-        console.log("✅ Firebase Admin SDK initialized successfully.");
-    } catch (err) {
-        console.error("❌ CRITICAL ERROR: Firebase Admin Initialization failed!", err);
-        process.exit(1);
-    }
-}
-
 
 // Routes Import 
 const adRoutes = require('./routes/adRoutes');
@@ -58,51 +16,76 @@ const server = http.createServer(app);
 // Socket.IO Setup
 const io = new Server(server, {
     cors: {
-        origin: "*", // Production mein specific URL de sakte hain
+        origin: "*",
         methods: ["GET", "POST", "PUT", "DELETE"]
     }
 });
 
 // Middleware
 app.use(cors());
-app.use(express.json()); 
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// --- 1. USER SCHEMA & MODEL (For Registration) ---
+const UserSchema = new mongoose.Schema({
+    uid: { type: String, required: true, unique: true },
+    fullName: String,
+    email: String,
+    shopName: String,
+    phone: String,
+    selectedPlan: String,
+    planPrice: String,
+    createdAt: { type: Date, default: Date.now }
+});
+
+// मॉडल को चेक करें कि कहीं पहले से तो नहीं बना (Render re-deploy safety)
+const User = mongoose.models.User || mongoose.model('User', UserSchema);
 
 // Database Connection
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('✅ MongoDB Connected successfully!'))
     .catch(err => {
         console.error('❌ DB Connection Error:', err);
-        process.exit(1);
     });
 
+// --- 2. USER REGISTRATION API ROUTE ---
+app.post('/api/users/register', async (req, res) => {
+    try {
+        console.log("New Signup Request:", req.body);
+        const { uid, fullName, email, shopName, phone, selectedPlan, planPrice } = req.body;
 
-// 🚀 REAL-TIME SOCKET.IO LOGIC (Controller & Display Communication)
+        const newUser = new User({
+            uid,
+            fullName,
+            email,
+            shopName,
+            phone,
+            selectedPlan,
+            planPrice
+        });
+
+        await newUser.save();
+        res.status(201).json({ success: true, message: "User registered in DB!" });
+    } catch (err) {
+        console.error("Signup DB Error:", err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 🚀 REAL-TIME SOCKET.IO LOGIC
 io.on('connection', (socket) => {
     console.log(`[SOCKET] User connected: ${socket.id}`);
 
-    // 1. DEVICE REGISTRATION
     socket.on('register_device', (deviceId) => {
         socket.join(deviceId);
-        console.log(`[SOCKET] Device registered: ${deviceId}. Joined room: ${deviceId}`);
+        console.log(`[SOCKET] Device registered: ${deviceId}`);
     });
 
-    // 2. ADMIN/CONTROLLER COMMAND
     socket.on('admin_command', (data) => {
-        const { targetId, command, payload } = data;
-
-        if (!targetId || !command) {
-            return console.error("Invalid command received: targetId or command missing.");
-        }
-
-        console.log(`[COMMAND] Admin Command: [${command}] for Target: ${targetId}`);
-
-        io.to(targetId).emit(command, payload);
-
-        if (io.sockets.adapter.rooms.get(targetId)) {
-            console.log(`[COMMAND] Successfully forwarded ${command} to room ${targetId}`);
-        } else {
-            console.warn(`[COMMAND] Warning: Target room ${targetId} does not seem to exist.`);
+        const { targetId, command } = data;
+        if (targetId && command) {
+            io.to(targetId).emit('admin_command', data);
+            console.log(`[COMMAND] Sent ${command} to ${targetId}`);
         }
     });
 
@@ -114,16 +97,14 @@ io.on('connection', (socket) => {
 // Routes
 app.use('/api/ads', adRoutes(io));
 app.use('/api/playlists', playlistRoutes(io));
+app.use('/uploads', express.static('uploads'));
 
-// Error Handling Middleware (Generic)
+// Error Handling
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).send({ message: 'Something broke on the server side!' });
 });
 
-
 // Start Server
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-
-// --- end of server.js ---
