@@ -5,13 +5,19 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require("socket.io");
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+const admin = require('firebase-admin');
 
-if (!admin.apps.length) {
+try {
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT.startsWith('{')
+        ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+        : JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString());
+
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
     });
-    console.log("✅ Firebase Admin Initialized");
+    console.log("Firebase Admin Initialized Successfully");
+} catch (error) {
+    console.error("Firebase Init Error:", error.message);
 }
 // Routes Import 
 const adRoutes = require('./routes/adRoutes');

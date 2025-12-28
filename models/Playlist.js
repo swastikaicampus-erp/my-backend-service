@@ -1,8 +1,11 @@
 const mongoose = require('mongoose');
 
 const PlaylistSchema = new mongoose.Schema({
-    // इस फील्ड से पता चलेगा कि प्लेलिस्ट किस यूजर की है
-    userId: { type: String, required: true, index: true },
+    userId: {
+        type: String,
+        required: true,
+        index: true
+    },
     name: {
         type: String,
         required: true
@@ -21,8 +24,15 @@ const PlaylistSchema = new mongoose.Schema({
     }
 });
 
-// इंडेक्सिंग: एक यूजर अपने अकाउंट में सेम नाम की दो प्लेलिस्ट नहीं रख पाएगा, 
-// लेकिन अलग-अलग यूजर्स सेम नाम रख सकते हैं।
+// इंडेक्स: एक यूजर एक ही नाम की दो प्लेलिस्ट नहीं बना पाएगा
 PlaylistSchema.index({ userId: 1, name: 1 }, { unique: true });
 
-module.exports = mongoose.model('Playlist', PlaylistSchema);
+const Playlist = mongoose.model('Playlist', PlaylistSchema);
+
+// --- पुराना 'deviceId' इंडेक्स हटाने का जादुई कोड ---
+Playlist.collection.dropIndex('deviceId_1').catch(err => {
+    // अगर इंडेक्स पहले से डिलीटेड है, तो कोई एरर नहीं आएगी
+    console.log("Old deviceId index cleaned or not found.");
+});
+
+module.exports = Playlist;
