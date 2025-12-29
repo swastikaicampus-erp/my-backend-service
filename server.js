@@ -76,18 +76,28 @@ app.post('/api/users/register', async (req, res) => {
 });
 
 // --- 2. MASTER ADMIN APIs (New) ---
+// --- MASTER ADMIN APIs ---
 
-// Sabhi users ko fetch karne ke liye (Master Dashboard ke liye)
+// 1. Get All Users with Logging
 app.get('/api/master/users', async (req, res) => {
     try {
-        const users = await User.find().sort({ createdAt: -1 });
-        res.json({ success: true, users });
+        const users = await User.find({}).sort({ createdAt: -1 });
+        
+        // Debugging ke liye console me check karein
+        console.log(`[ADMIN] Total users found in DB: ${users.length}`);
+        
+        res.json({ 
+            success: true, 
+            count: users.length, // Count bhi bhejein check karne ke liye
+            users 
+        });
     } catch (err) {
+        console.error("Master Fetch Error:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// Plan Renew karne ke liye
+// 2. Plan Renew/Update
 app.put('/api/master/renew-plan/:uid', async (req, res) => {
     try {
         const { selectedPlan, planPrice } = req.body;
@@ -97,10 +107,22 @@ app.put('/api/master/renew-plan/:uid', async (req, res) => {
             { new: true }
         );
         
-        // Real-time update bhejna user ke device ko
+        if (!updatedUser) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
         io.to(req.params.uid).emit('plan_updated', updatedUser);
-        
-        res.json({ success: true, message: "Plan Renewed Successfully!", data: updatedUser });
+        res.json({ success: true, message: "Plan Renewed!", data: updatedUser });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 3. Delete User (Testing ke liye bahut zaroori hai)
+app.delete('/api/master/delete-user/:uid', async (req, res) => {
+    try {
+        await User.findOneAndDelete({ uid: req.params.uid });
+        res.json({ success: true, message: "User deleted successfully" });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
