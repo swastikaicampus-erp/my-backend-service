@@ -62,63 +62,77 @@ mongoose.connect(process.env.MONGO_URI)
     .catch(err => console.error('❌ DB Connection Error:', err));
 
 // --- 1. USER REGISTRATION API ---
+// --- Helper Function: Plan ke hisaab se Expiry Date nikalne ke liye ---
+const calculateExpiry = (planString) => {
+    const months = parseInt(planString) || 3; // Agar "3 Months" hai to 3 nikal lega, default 3
+    const date = new Date();
+    date.setMonth(date.getMonth() + months);
+    return date;
+};
+
+// --- 1. USER REGISTRATION API ---
 app.post('/api/users/register', async (req, res) => {
     try {
         const { uid, fullName, email, shopName, phone, selectedPlan, planPrice } = req.body;
+        
         const newUser = new User({
-            uid, fullName, email, shopName, phone, selectedPlan, planPrice
+            uid, 
+            fullName, 
+            email, 
+            shopName, 
+            phone, 
+            selectedPlan, 
+            planPrice,
+            expiryDate: calculateExpiry(selectedPlan) // Automatic expiry set hogi
         });
+
         await newUser.save();
-        res.status(201).json({ success: true, message: "User registered!" });
+        res.status(201).json({ success: true, message: "User registered with Expiry!" });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// --- 2. MASTER ADMIN APIs (New) ---
-// --- MASTER ADMIN APIs ---
+// --- 2. MASTER APIs ---
 
-// 1. Get All Users with Logging
+// Sabhi users ko fetch karna
 app.get('/api/master/users', async (req, res) => {
     try {
         const users = await User.find({}).sort({ createdAt: -1 });
-        
-        // Debugging ke liye console me check karein
-        console.log(`[ADMIN] Total users found in DB: ${users.length}`);
-        
-        res.json({ 
-            success: true, 
-            count: users.length, // Count bhi bhejein check karne ke liye
-            users 
-        });
+        console.log(`[ADMIN] Total users: ${users.length}`);
+        res.json({ success: true, count: users.length, users });
     } catch (err) {
-        console.error("Master Fetch Error:", err);
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// 2. Plan Renew/Update
+// Plan Renew/Update (Isme bhi Expiry Reset hogi)
 app.put('/api/master/renew-plan/:uid', async (req, res) => {
     try {
         const { selectedPlan, planPrice } = req.body;
+        
         const updatedUser = await User.findOneAndUpdate(
             { uid: req.params.uid },
-            { selectedPlan, planPrice },
+            { 
+                selectedPlan, 
+                planPrice, 
+                expiryDate: calculateExpiry(selectedPlan) // Renew karte hi nayi date set hogi
+            },
             { new: true }
         );
         
-        if (!updatedUser) {
-            return res.status(404).json({ success: false, message: "User not found" });
-        }
+        if (!updatedUser) return res.status(404).json({ success: false, message: "User not found" });
 
+        // Real-time notification to device
         io.to(req.params.uid).emit('plan_updated', updatedUser);
-        res.json({ success: true, message: "Plan Renewed!", data: updatedUser });
+        
+        res.json({ success: true, message: "Plan Renewed & Date Updated!", data: updatedUser });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// 3. Delete User (Testing ke liye bahut zaroori hai)
+// User Delete
 app.delete('/api/master/delete-user/:uid', async (req, res) => {
     try {
         await User.findOneAndDelete({ uid: req.params.uid });
