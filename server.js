@@ -35,10 +35,10 @@ const io = new Server(server, {
     }
 });
 
-// Middleware
+// Middleware - Image upload ke liye limit badhayi gayi hai
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' })); 
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // --- USER SCHEMA ---
 const UserSchema = new mongoose.Schema({
@@ -49,8 +49,11 @@ const UserSchema = new mongoose.Schema({
     phone: String,
     selectedPlan: String,
     planPrice: String,
-    isActive: { type: Boolean, default: true }, // Device status control
-    expiryDate: { type: Date }, // Plan expiry handle karne ke liye
+    // Naye Fields for Payment Verification
+    transactionId: { type: String, required: true },
+    paymentScreenshot: { type: String }, // Base64 String
+    isActive: { type: Boolean, default: false }, // Default False (Admin approval needed)
+    expiryDate: { type: Date }, 
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -61,10 +64,9 @@ mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('✅ MongoDB Connected successfully!'))
     .catch(err => console.error('❌ DB Connection Error:', err));
 
-// --- 1. USER REGISTRATION API ---
-// --- Helper Function: Plan ke hisaab se Expiry Date nikalne ke liye ---
+// --- HELPER: Calculate Expiry ---
 const calculateExpiry = (planString) => {
-    const months = parseInt(planString) || 3; // Agar "3 Months" hai to 3 nikal lega, default 3
+    const months = parseInt(planString) || 3; 
     const date = new Date();
     date.setMonth(date.getMonth() + months);
     return date;
@@ -73,7 +75,7 @@ const calculateExpiry = (planString) => {
 // --- 1. USER REGISTRATION API ---
 app.post('/api/users/register', async (req, res) => {
     try {
-        const { uid, fullName, email, shopName, phone, selectedPlan, planPrice } = req.body;
+        const { uid, fullName, email, shopName, phone, selectedPlan, planPrice, transactionId, paymentScreenshot } = req.body;
         
         const newUser = new User({
             uid, 
@@ -83,30 +85,54 @@ app.post('/api/users/register', async (req, res) => {
             phone, 
             selectedPlan, 
             planPrice,
-            expiryDate: calculateExpiry(selectedPlan) // Automatic expiry set hogi
+            transactionId,
+            paymentScreenshot,
+            isActive: false, // User shuruat mein inactive rahega
+            expiryDate: calculateExpiry(selectedPlan)
         });
 
         await newUser.save();
-        res.status(201).json({ success: true, message: "User registered with Expiry!" });
+        res.status(201).json({ success: true, message: "Registered! Waiting for admin approval." });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// --- 2. MASTER APIs ---
+// --- 2. MASTER APIs (For Admin Panel) ---
 
-// Sabhi users ko fetch karna
+// Sabhi users fetch karna (Isme payment details bhi milengi)
 app.get('/api/master/users', async (req, res) => {
     try {
         const users = await User.find({}).sort({ createdAt: -1 });
-        console.log(`[ADMIN] Total users: ${users.length}`);
         res.json({ success: true, count: users.length, users });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// Plan Renew/Update (Isme bhi Expiry Reset hogi)
+// --- TOGGLE ACTIVATE/DEACTIVATE (Naya API) ---
+app.put('/api/master/toggle-status/:uid', async (req, res) => {
+    try {
+        const user = await User.findOne({ uid: req.params.uid });
+        if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+        user.isActive = !user.isActive; // Toggle Status
+        await user.save();
+
+        // Real-time notification agar device online hai
+        io.to(req.params.uid).emit('status_changed', { isActive: user.isActive });
+
+        res.json({ 
+            success: true, 
+            message: `User ${user.isActive ? 'Activated' : 'Deactivated'} successfully`, 
+            isActive: user.isActive 
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Plan Renew
 app.put('/api/master/renew-plan/:uid', async (req, res) => {
     try {
         const { selectedPlan, planPrice } = req.body;
@@ -116,17 +142,16 @@ app.put('/api/master/renew-plan/:uid', async (req, res) => {
             { 
                 selectedPlan, 
                 planPrice, 
-                expiryDate: calculateExpiry(selectedPlan) // Renew karte hi nayi date set hogi
+                isActive: true, // Renew karne par auto-active
+                expiryDate: calculateExpiry(selectedPlan) 
             },
             { new: true }
         );
         
         if (!updatedUser) return res.status(404).json({ success: false, message: "User not found" });
 
-        // Real-time notification to device
         io.to(req.params.uid).emit('plan_updated', updatedUser);
-        
-        res.json({ success: true, message: "Plan Renewed & Date Updated!", data: updatedUser });
+        res.json({ success: true, message: "Plan Renewed!", data: updatedUser });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -151,7 +176,6 @@ io.on('connection', (socket) => {
     socket.on('register_device', (deviceId) => {
         socket.join(deviceId);
         activeDevices.add(deviceId);
-        // Master admin ko update dena ki naya device online aaya
         io.emit('online_devices_count', activeDevices.size);
         console.log(`[SOCKET] Device Online: ${deviceId}`);
     });
@@ -162,7 +186,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        activeDevices.delete(socket.id); // Simple logic, needs mapping for real deviceIds
+        // Socket mapping logic should be added here for precise device tracking
+        activeDevices.delete(socket.id); 
         io.emit('online_devices_count', activeDevices.size);
         console.log(`[SOCKET] Disconnected: ${socket.id}`);
     });
