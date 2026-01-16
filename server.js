@@ -100,6 +100,7 @@ app.post('/api/users/register', async (req, res) => {
 });
 
 // --- 2. MASTER APIs (For Admin Panel) ---
+app.use('/api/plans', planRoutes);
 
 // Sabhi users fetch karna (Isme payment details bhi milengi)
 app.get('/api/master/users', async (req, res) => {
