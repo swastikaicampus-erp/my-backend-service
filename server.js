@@ -23,6 +23,7 @@ try {
 // Routes Import 
 const adRoutes = require('./routes/adRoutes');
 const playlistRoutes = require('./routes/playlistRoutes');
+const planRoutes = require('./routes/planRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -196,6 +197,7 @@ io.on('connection', (socket) => {
 // Routes usage
 app.use('/api/ads', adRoutes(io));
 app.use('/api/playlists', playlistRoutes(io));
+app.use('/api/plans', planRoutes);
 app.use('/uploads', express.static('uploads'));
 
 const PORT = process.env.PORT || 8080;
