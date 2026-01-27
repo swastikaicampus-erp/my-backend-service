@@ -57,6 +57,12 @@ const UserSchema = new mongoose.Schema({
     expiryDate: { type: Date }, 
     createdAt: { type: Date, default: Date.now }
 });
+// --- MASTER CONFIG SCHEMA ---
+const ConfigSchema = new mongoose.Schema({
+    key: { type: String, default: 'master_settings' },
+    password: { type: String, default: 'ADMIN@SIGNAGE#2025' }
+});
+const Config = mongoose.models.Config || mongoose.model('Config', ConfigSchema);
 
 const User = mongoose.models.User || mongoose.model('User', UserSchema);
 
@@ -155,6 +161,34 @@ app.put('/api/master/toggle-status/:uid', async (req, res) => {
 // --- 2. MASTER APIs (For Admin Panel) ---
 app.use('/api/plans', planRoutes);
 
+// --- MASTER PASSWORD APIs ---
+app.get('/api/master/config', async (req, res) => {
+    try {
+        let config = await Config.findOne({ key: 'master_settings' });
+        if (!config) {
+            config = new Config();
+            await config.save();
+        }
+        res.json({ success: true, password: config.password });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+app.put('/api/master/config', async (req, res) => {
+    try {
+        const { password } = req.body;
+        const config = await Config.findOneAndUpdate(
+            { key: 'master_settings' },
+            { password: password },
+            { new: true, upsert: true }
+        );
+        res.json({ success: true, message: "Master Password Updated!" });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // Sabhi users fetch karna (Isme payment details bhi milengi)
 app.get('/api/master/users', async (req, res) => {
     try {
@@ -165,27 +199,6 @@ app.get('/api/master/users', async (req, res) => {
     }
 });
 
-// --- TOGGLE ACTIVATE/DEACTIVATE (Naya API) ---
-app.put('/api/master/toggle-status/:uid', async (req, res) => {
-    try {
-        const user = await User.findOne({ uid: req.params.uid });
-        if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
-        user.isActive = !user.isActive; // Toggle Status
-        await user.save();
-
-        // Real-time notification agar device online hai
-        io.to(req.params.uid).emit('status_changed', { isActive: user.isActive });
-
-        res.json({ 
-            success: true, 
-            message: `User ${user.isActive ? 'Activated' : 'Deactivated'} successfully`, 
-            isActive: user.isActive 
-        });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
-    }
-});
 
 // Plan Renew
 app.put('/api/master/renew-plan/:uid', async (req, res) => {
