@@ -99,6 +99,20 @@ app.post('/api/users/register', async (req, res) => {
     }
 });
 
+// User status check karne ke liye
+app.get('/api/users/status/:uid', async (req, res) => {
+    try {
+        const user = await User.findOne({ uid: req.params.uid });
+        if (!user) return res.status(404).json({ isActive: false, message: "User not found" });
+        
+        res.json({ 
+            isActive: user.isActive, 
+            message: user.isActive ? "Approved" : "Pending Admin Approval" 
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // --- 2. MASTER APIs (For Admin Panel) ---
 app.use('/api/plans', planRoutes);
 
