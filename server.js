@@ -99,18 +99,57 @@ app.post('/api/users/register', async (req, res) => {
     }
 });
 
-// User status check karne ke liye
-app.get('/api/users/status/:uid', async (req, res) => {
+// Is route ko "USER REGISTRATION API" ke neeche add karein
+app.get('/api/users/me', async (req, res) => {
     try {
-        const user = await User.findOne({ uid: req.params.uid });
-        if (!user) return res.status(404).json({ isActive: false, message: "User not found" });
+        // Frontend se authorization header mein UID ya Token aayega
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ message: "No token provided" });
+
+        // Note: Ideal case mein yahan Firebase Admin SDK se token verify hona chahiye
+        // Par abhi ke liye hum UID se check kar rahe hain (agar aap token bhej rahe hain)
+        const token = authHeader.split(' ')[1]; 
         
-        res.json({ 
-            isActive: user.isActive, 
-            message: user.isActive ? "Approved" : "Pending Admin Approval" 
+        // Firebase token se UID nikalne ka logic (Recommended)
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const uid = decodedToken.uid;
+
+        const user = await User.findOne({ uid: uid });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        // Hum status field dynamically bhejenge
+        res.json({
+            uid: user.uid,
+            status: user.isActive ? 'active' : 'pending', // isActive false hai toh pending
+            expiryDate: user.expiryDate
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(401).json({ message: "Invalid Token" });
+    }
+});
+// Apne existing toggle-status route ko update karein
+app.put('/api/master/toggle-status/:uid', async (req, res) => {
+    try {
+        const user = await User.findOne({ uid: req.params.uid });
+        if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+        user.isActive = !user.isActive; 
+        await user.save();
+
+        // --- NAYA LOGIC: Logout command bhejna agar deactivate kiya hai ---
+        if (!user.isActive) {
+            io.to(req.params.uid).emit('force_logout', { message: "Your account has been suspended." });
+        } else {
+            io.to(req.params.uid).emit('status_changed', { isActive: user.isActive });
+        }
+
+        res.json({ 
+            success: true, 
+            message: `User ${user.isActive ? 'Activated' : 'Suspended'} successfully`, 
+            isActive: user.isActive 
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 // --- 2. MASTER APIs (For Admin Panel) ---
