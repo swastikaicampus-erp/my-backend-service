@@ -82,7 +82,18 @@ const calculateExpiry = (planString) => {
 // --- 1. USER REGISTRATION API ---
 app.post('/api/users/register', async (req, res) => {
     try {
-        const { uid, fullName, email, shopName, phone, selectedPlan, planPrice, transactionId, paymentScreenshot } = req.body;
+        const { 
+            uid, 
+            fullName, 
+            email, 
+            shopName, 
+            phone, 
+            selectedPlan, 
+            planPrice, 
+            screenCount, 
+            transactionId, 
+            paymentScreenshot 
+        } = req.body;
         
         const newUser = new User({
             uid, 
@@ -92,14 +103,33 @@ app.post('/api/users/register', async (req, res) => {
             phone, 
             selectedPlan, 
             planPrice,
+            screenCount: parseInt(screenCount) || 1, 
             transactionId,
             paymentScreenshot,
-            isActive: false, // User shuruat mein inactive rahega
+            isActive: false, 
             expiryDate: calculateExpiry(selectedPlan)
         });
 
         await newUser.save();
         res.status(201).json({ success: true, message: "Registered! Waiting for admin approval." });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+// --- Get All Users with Screen Stats ---
+app.get('/api/master/users', async (req, res) => {
+    try {
+        const users = await User.find({}).sort({ createdAt: -1 });
+        
+        // Optional: Total screens across all users nikalne ke liye
+        const totalScreensDeployed = users.reduce((sum, user) => sum + (user.screenCount || 0), 0);
+
+        res.json({ 
+            success: true, 
+            count: users.length, 
+            totalScreens: totalScreensDeployed, // Admin dashboard par dikhane ke liye kaam aayega
+            users 
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -203,23 +233,38 @@ app.get('/api/master/users', async (req, res) => {
 // Plan Renew
 app.put('/api/master/renew-plan/:uid', async (req, res) => {
     try {
-        const { selectedPlan, planPrice } = req.body;
+        // Body se screenCount bhi nikaal lein
+        const { selectedPlan, planPrice, screenCount } = req.body;
         
+        // Update object taiyar karein
+        const updateFields = { 
+            selectedPlan, 
+            planPrice, 
+            isActive: true, 
+            expiryDate: calculateExpiry(selectedPlan) 
+        };
+
+        // Agar admin ne naya screenCount bheja hai, toh use update karein
+        if (screenCount !== undefined) {
+            updateFields.screenCount = parseInt(screenCount) || 1;
+        }
+
         const updatedUser = await User.findOneAndUpdate(
             { uid: req.params.uid },
-            { 
-                selectedPlan, 
-                planPrice, 
-                isActive: true, // Renew karne par auto-active
-                expiryDate: calculateExpiry(selectedPlan) 
-            },
+            updateFields,
             { new: true }
         );
         
         if (!updatedUser) return res.status(404).json({ success: false, message: "User not found" });
 
+        // Real-time update bhejna (taaki app ko turant pata chal jaye)
         io.to(req.params.uid).emit('plan_updated', updatedUser);
-        res.json({ success: true, message: "Plan Renewed!", data: updatedUser });
+        
+        res.json({ 
+            success: true, 
+            message: "Plan Renewed & Screens Updated!", 
+            data: updatedUser 
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
