@@ -50,7 +50,7 @@ const UserSchema = new mongoose.Schema({
     phone: String,
     selectedPlan: String,
     planPrice: String,
-    // Naye Fields for Payment Verification
+    screens: { type: Number, default: 1 },
     transactionId: { type: String, required: true },
     paymentScreenshot: { type: String }, // Base64 String
     isActive: { type: Boolean, default: false }, // Default False (Admin approval needed)
@@ -90,7 +90,7 @@ app.post('/api/users/register', async (req, res) => {
             phone, 
             selectedPlan, 
             planPrice, 
-            screenCount, 
+            screens, 
             transactionId, 
             paymentScreenshot 
         } = req.body;
@@ -103,7 +103,7 @@ app.post('/api/users/register', async (req, res) => {
             phone, 
             selectedPlan, 
             planPrice,
-            screenCount: parseInt(screenCount) || 1, 
+            screens: parseInt(screens) || 1, 
             transactionId,
             paymentScreenshot,
             isActive: false, 
