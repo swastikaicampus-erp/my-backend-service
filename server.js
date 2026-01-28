@@ -121,13 +121,13 @@ app.get('/api/master/users', async (req, res) => {
     try {
         const users = await User.find({}).sort({ createdAt: -1 });
         
-        // Optional: Total screens across all users nikalne ke liye
-        const totalScreensDeployed = users.reduce((sum, user) => sum + (user.screenCount || 0), 0);
+        // Fix: user.screenCount ki jagah user.screens use karein
+        const totalScreensDeployed = users.reduce((sum, user) => sum + (user.screens || 0), 0);
 
         res.json({ 
             success: true, 
             count: users.length, 
-            totalScreens: totalScreensDeployed, // Admin dashboard par dikhane ke liye kaam aayega
+            totalScreens: totalScreensDeployed, 
             users 
         });
     } catch (err) {
@@ -219,22 +219,14 @@ app.put('/api/master/config', async (req, res) => {
     }
 });
 
-// Sabhi users fetch karna (Isme payment details bhi milengi)
-app.get('/api/master/users', async (req, res) => {
-    try {
-        const users = await User.find({}).sort({ createdAt: -1 });
-        res.json({ success: true, count: users.length, users });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
-    }
-});
+
 
 
 // Plan Renew
 app.put('/api/master/renew-plan/:uid', async (req, res) => {
     try {
         // Body se screenCount bhi nikaal lein
-        const { selectedPlan, planPrice, screenCount } = req.body;
+        const { selectedPlan, planPrice, screens } = req.body;
         
         // Update object taiyar karein
         const updateFields = { 
@@ -244,9 +236,9 @@ app.put('/api/master/renew-plan/:uid', async (req, res) => {
             expiryDate: calculateExpiry(selectedPlan) 
         };
 
-        // Agar admin ne naya screenCount bheja hai, toh use update karein
-        if (screenCount !== undefined) {
-            updateFields.screenCount = parseInt(screenCount) || 1;
+        // Agar admin ne naya screens bheja hai, toh use update karein
+        if (screens !== undefined) {
+            updateFields.screens = parseInt(screens) || 1;
         }
 
         const updatedUser = await User.findOneAndUpdate(
